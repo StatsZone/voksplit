@@ -39,14 +39,24 @@ export function channelsToWavBlob(channels: Float32Array[], sampleRate = SAMPLE_
   writeString(36, 'data');
   view.setUint32(40, dataLength, true);
 
+  // Analyse du pic maximal sur tous les canaux pour éviter tout grésillement
+  let maxPeak = 0;
+  for (let ch = 0; ch < numChannels; ch++) {
+    for (let i = 0; i < frames; i++) {
+      const a = Math.abs(channels[ch][i]);
+      if (a > maxPeak) maxPeak = a;
+    }
+  }
+  const gain = maxPeak > 0.95 ? 0.95 / maxPeak : 1.0;
+
   let offset = 44;
   for (let i = 0; i < frames; i++) {
     for (let ch = 0; ch < numChannels; ch++) {
-      let s = channels[ch][i];
+      let s = (channels[ch][i] || 0) * gain;
       if (isNaN(s) || !isFinite(s)) s = 0;
       else if (s > 0.999) s = 0.999;
       else if (s < -0.999) s = -0.999;
-      const pcm = Math.max(-32768, Math.min(32767, Math.round(s * (s < 0 ? 32768 : 32767))));
+      const pcm = Math.max(-32767, Math.min(32767, Math.round(s * 32767)));
       view.setInt16(offset, pcm, true);
       offset += 2;
     }
@@ -144,13 +154,13 @@ export async function separateAudioDSP(
     const mid = 0.5 * (sL + sR);
     const side = 0.5 * (sL - sR);
 
-    // Instru : side mis en valeur, réduction du centre
-    outInstL[i] = Math.tanh(0.2 * mid + side * 1.1);
-    outInstR[i] = Math.tanh(0.2 * mid - side * 1.1);
+    // Instru : accentuation spatiale stéréo et atténuation douce du centre
+    outInstL[i] = 0.25 * mid + side;
+    outInstR[i] = 0.25 * mid - side;
 
-    // Voix : centre extrait
-    outVocL[i] = Math.tanh(mid * 0.9);
-    outVocR[i] = Math.tanh(mid * 0.9);
+    // Voix : extraction du centre spatial (canal mono centré)
+    outVocL[i] = mid;
+    outVocR[i] = mid;
   }
 
   onProgress?.({ message: 'Génération des fichiers...', progress: 0.95 });

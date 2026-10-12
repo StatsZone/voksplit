@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Upload, 
   Sparkles, 
@@ -38,6 +38,22 @@ export default function StudioPage() {
   const audioRefOrig = useRef<HTMLAudioElement | null>(null);
   const audioRefInstru = useRef<HTMLAudioElement | null>(null);
   const audioRefVocals = useRef<HTMLAudioElement | null>(null);
+
+  // URLs Blob mémorisées et stables (évite toute réallocation en cours de lecture = zéro grésillement)
+  const instruUrl = useMemo(() => {
+    return currentResult?.instrumental ? URL.createObjectURL(currentResult.instrumental) : null;
+  }, [currentResult?.instrumental]);
+
+  const vocalsUrl = useMemo(() => {
+    return currentResult?.vocals ? URL.createObjectURL(currentResult.vocals) : null;
+  }, [currentResult?.vocals]);
+
+  useEffect(() => {
+    return () => {
+      if (instruUrl) URL.revokeObjectURL(instruUrl);
+      if (vocalsUrl) URL.revokeObjectURL(vocalsUrl);
+    };
+  }, [instruUrl, vocalsUrl]);
 
   // Charger l'historique local au montage
   useEffect(() => {
@@ -394,18 +410,18 @@ export default function StudioPage() {
 
             {/* Hidden Audio Players for A/B Sync */}
             {audioUrl && <audio ref={audioRefOrig} src={audioUrl} onEnded={() => setIsPlaying(false)} className="hidden" />}
-            {currentResult.instrumental && (
+            {instruUrl && (
               <audio
                 ref={audioRefInstru}
-                src={URL.createObjectURL(currentResult.instrumental)}
+                src={instruUrl}
                 onEnded={() => setIsPlaying(false)}
                 className="hidden"
               />
             )}
-            {currentResult.vocals && (
+            {vocalsUrl && (
               <audio
                 ref={audioRefVocals}
-                src={URL.createObjectURL(currentResult.vocals)}
+                src={vocalsUrl}
                 onEnded={() => setIsPlaying(false)}
                 className="hidden"
               />

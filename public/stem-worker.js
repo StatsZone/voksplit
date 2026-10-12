@@ -147,13 +147,13 @@ function encodeWav(left, right) {
         if (isNaN(sL) || !isFinite(sL)) sL = 0;
         else if (sL > 0.999) sL = 0.999;
         else if (sL < -0.999) sL = -0.999;
-        pcm16[p++] = Math.max(-32768, Math.min(32767, Math.round(sL * (sL < 0 ? 32768 : 32767))));
+        pcm16[p++] = Math.max(-32767, Math.min(32767, Math.round(sL * 32767)));
 
         let sR = right[i];
         if (isNaN(sR) || !isFinite(sR)) sR = 0;
         else if (sR > 0.999) sR = 0.999;
         else if (sR < -0.999) sR = -0.999;
-        pcm16[p++] = Math.max(-32768, Math.min(32767, Math.round(sR * (sR < 0 ? 32768 : 32767))));
+        pcm16[p++] = Math.max(-32767, Math.min(32767, Math.round(sR * 32767)));
     }
     return new Blob([buffer], { type: 'audio/wav' });
 }
@@ -202,13 +202,26 @@ self.onmessage = async (e) => {
             vocR[i] = vR;
         }
 
-        // Limiteur transparent soft tanh
-        for (let i = 0; i < n; i++) {
-            instL[i] = Math.tanh(instL[i]);
-            instR[i] = Math.tanh(instR[i]);
-            vocL[i] = Math.tanh(vocL[i]);
-            vocR[i] = Math.tanh(vocR[i]);
-        }
+        // Normalisation transparente studio (Headroom limiter sans saturation harmonique)
+        const normalizeStem = (chL, chR, targetPeak = 0.95) => {
+            let maxPeak = 0;
+            for (let i = 0; i < n; i++) {
+                const aL = Math.abs(chL[i]);
+                const aR = Math.abs(chR[i]);
+                if (aL > maxPeak) maxPeak = aL;
+                if (aR > maxPeak) maxPeak = aR;
+            }
+            if (maxPeak > targetPeak) {
+                const scale = targetPeak / maxPeak;
+                for (let i = 0; i < n; i++) {
+                    chL[i] *= scale;
+                    chR[i] *= scale;
+                }
+            }
+        };
+
+        normalizeStem(instL, instR, 0.95);
+        normalizeStem(vocL, vocR, 0.95);
 
         const instrumentalBlob = encodeWav(instL, instR);
         const vocalBlob = encodeWav(vocL, vocR);
