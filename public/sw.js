@@ -1,6 +1,6 @@
 // public/sw.js - Service Worker de Voksplit pour le mode PWA et cache offline
 
-const CACHE_NAME = 'voksplit-shell-v1';
+const CACHE_NAME = 'voksplit-shell-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -26,22 +26,34 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  // Ignorer les requêtes non-HTTP(S) (ex: extensions Chrome chrome-extension://, firefox moz-extension://)
+  if (!e.request.url.startsWith('http://') && !e.request.url.startsWith('https://')) {
+    return;
+  }
+
+  if (e.request.method !== 'GET') {
+    return;
+  }
+
   const url = new URL(e.request.url);
 
-  // Le modèle IA et les binaires lourds sont gérés par leur propre système de cache immuable
-  if (url.hostname.includes('huggingface.co') || url.pathname.includes('/ort-wasm/')) {
+  // Ignorer les requêtes externes et modèles lourds pour ce cache shell
+  if (url.origin !== self.location.origin || url.hostname.includes('huggingface.co') || url.pathname.includes('/ort-wasm/')) {
     return;
   }
 
   e.respondWith(
     caches.match(e.request).then((res) => {
-      return res || fetch(e.request).then((netRes) => {
-        if (netRes && netRes.status === 200 && e.request.method === 'GET') {
-          const clone = netRes.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(e.request, clone));
-        }
-        return netRes;
-      });
+      return (
+        res ||
+        fetch(e.request).then((netRes) => {
+          if (netRes && netRes.status === 200) {
+            const clone = netRes.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(e.request, clone).catch(() => {})).catch(() => {});
+          }
+          return netRes;
+        })
+      );
     }).catch(() => caches.match('/'))
   );
 });
