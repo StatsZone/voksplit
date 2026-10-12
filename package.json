@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@supabase/supabase-js": "^2.117.3",
     "canvas-confetti": "^1.9.4",
     "idb": "^8.0.4",
