@@ -1,7 +1,8 @@
 // public/stem-worker.js - Web Worker dédié à l'isolation vocale pour Voksplit
 // 100% local, non-bloquant pour l'interface UI, avec contrôle d'intégrité SHA-256
 
-const ORT_BASE = '/ort-wasm/';
+const ORT_VERSION = '1.20.1';
+const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
 const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js';
 const MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
 const MODEL_SHA256 = 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077';
