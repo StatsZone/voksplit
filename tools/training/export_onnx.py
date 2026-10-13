@@ -39,21 +39,44 @@ def export_model(checkpoint_path=None, output_dir="./exported_models"):
     fp16_onnx_path = os.path.join(output_dir, "voksplit-net-fp16.onnx")
 
     print(f"\n1. Export ONNX standard (FP32) vers : {fp32_onnx_path}")
-    torch.onnx.export(
-        model,
-        dummy_input,
-        fp32_onnx_path,
-        export_params=True,
-        opset_version=17,
-        do_constant_folding=True,
-        input_names=["mix_mag"],
-        output_names=["mask_vocals", "mask_instrumental"],
-        dynamic_axes={
-            "mix_mag": {0: "batch_size", 3: "time_frames"},
-            "mask_vocals": {0: "batch_size", 3: "time_frames"},
-            "mask_instrumental": {0: "batch_size", 3: "time_frames"}
-        }
-    )
+    try:
+        torch.onnx.export(
+            model,
+            dummy_input,
+            fp32_path := fp32_onnx_path,
+            export_params=True,
+            opset_version=17,
+            do_constant_folding=True,
+            input_names=["mix_mag"],
+            output_names=["mask_vocals", "mask_instrumental"],
+            dynamic_axes={
+                "mix_mag": {0: "batch_size", 3: "time_frames"},
+                "mask_vocals": {0: "batch_size", 3: "time_frames"},
+                "mask_instrumental": {0: "batch_size", 3: "time_frames"}
+            }
+        )
+    except ModuleNotFoundError as e:
+        if "onnxscript" in str(e):
+            print("  -> onnxscript manquant. Installation automatique...")
+            import subprocess, sys
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "onnxscript"])
+            torch.onnx.export(
+                model,
+                dummy_input,
+                fp32_onnx_path,
+                export_params=True,
+                opset_version=17,
+                do_constant_folding=True,
+                input_names=["mix_mag"],
+                output_names=["mask_vocals", "mask_instrumental"],
+                dynamic_axes={
+                    "mix_mag": {0: "batch_size", 3: "time_frames"},
+                    "mask_vocals": {0: "batch_size", 3: "time_frames"},
+                    "mask_instrumental": {0: "batch_size", 3: "time_frames"}
+                }
+            )
+        else:
+            raise e
 
     size_fp32_mb = os.path.getsize(fp32_onnx_path) / (1024 * 1024)
     print(f"  -> Taille FP32 : {size_fp32_mb:.2f} Mo")

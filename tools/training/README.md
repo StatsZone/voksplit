@@ -48,7 +48,7 @@ Si vous disposez d'un GPU Nvidia local avec CUDA :
 
 ```bash
 # 1. Installation des dépendances
-pip install torch torchaudio onnx onnxruntime onnxconverter-common
+pip install torch torchaudio onnx onnxruntime onnxconverter-common onnxscript
 
 # 2. Lancer l'entraînement avec le dataset commercial
 python train.py --data_dir ./data/commercial_stems --epochs 50 --batch_size 8 --lr 0.001
