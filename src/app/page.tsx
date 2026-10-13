@@ -9,7 +9,6 @@ import {
   Play, 
   Pause, 
   Download, 
-  Zap, 
   Cpu, 
   ShieldCheck, 
   Layers, 
@@ -17,13 +16,12 @@ import {
   RefreshCw,
   Sliders
 } from 'lucide-react';
-import { separateAudioAI, separateAudioDSP, type SeparationResult } from '@/lib/audio-engine';
+import { separateAudioAI, type SeparationResult } from '@/lib/audio-engine';
 import { saveAudioItem, getAllAudioItems, deleteAudioItem, type AudioItem } from '@/lib/history-store';
 
 export default function StudioPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [engine, setEngine] = useState<'ai' | 'dsp'>('ai');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('Prêt pour la séparation');
   const [progressPct, setProgressPct] = useState(0);
@@ -90,18 +88,10 @@ export default function StudioPage() {
     setProgressMsg('Initialisation...');
 
     try {
-      let res: SeparationResult;
-      if (engine === 'ai') {
-        res = await separateAudioAI(selectedFile, ({ message, progress }) => {
-          setProgressMsg(message);
-          setProgressPct(Math.round(progress * 100));
-        });
-      } else {
-        res = await separateAudioDSP(selectedFile, ({ message, progress }) => {
-          setProgressMsg(message);
-          setProgressPct(Math.round(progress * 100));
-        });
-      }
+      const res = await separateAudioAI(selectedFile, ({ message, progress }) => {
+        setProgressMsg(message);
+        setProgressPct(Math.round(progress * 100));
+      });
 
       setCurrentResult(res);
       setProgressPct(100);
@@ -116,7 +106,7 @@ export default function StudioPage() {
         instrumentalBlob: res.instrumental,
         vocalsBlob: res.vocals,
         duration: 0,
-        engine,
+        engine: 'ai',
         createdAt: Date.now(),
       };
       await saveAudioItem(newItem);
@@ -221,32 +211,13 @@ export default function StudioPage() {
               </p>
             </div>
 
-            {/* Moteur Selector */}
-            <div className="flex items-center gap-2 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setEngine('ai')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition ${
-                  engine === 'ai'
-                    ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5" />
-                IA Haute Fidélité
-              </button>
-              <button
-                type="button"
-                onClick={() => setEngine('dsp')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition ${
-                  engine === 'dsp'
-                    ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Zap className="w-3.5 h-3.5" />
-                Aperçu 1s (DSP)
-              </button>
+            {/* Moteur Badge IA Haute Fidélité */}
+            <div className="flex items-center gap-2.5 bg-slate-950/80 px-3.5 py-2 rounded-xl border border-cyan-500/30 shadow-sm shadow-cyan-500/10">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <Cpu className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs font-bold text-white tracking-wide">
+                🤖 IA Haute Fidélité (HTDemucs)
+              </span>
             </div>
           </div>
 
