@@ -216,7 +216,7 @@ export default function StudioPage() {
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
               <Cpu className="w-4 h-4 text-cyan-400" />
               <span className="text-xs font-bold text-white tracking-wide">
-                🤖 IA Haute Fidélité (HTDemucs)
+                🤖 IA Haute Fidélité
               </span>
             </div>
           </div>
