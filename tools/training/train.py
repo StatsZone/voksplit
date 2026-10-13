@@ -1,5 +1,5 @@
 # tools/training/train.py
-# Boucle d'entraînement professionnelle pour VoksplitNet sur MUSDB18-HQ
+# Boucle d'entraînement 100% Commerciale pour VoksplitNet (Dynamic Synthetic Remixing)
 
 import os
 import time
@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from model import VoksplitNet
-from dataset import MUSDB18Dataset
+from dataset import CommercialStemDataset
 
 def compute_loss(pred_voc_mask, pred_ins_mask, mix_mag, target_voc_mag, target_ins_mag):
     """
@@ -97,7 +97,7 @@ def validate(model, dataloader, device):
 
 def main():
     parser = argparse.ArgumentParser(description="Entraînement de VoksplitNet pour la séparation Voix/Instru")
-    parser.add_argument("--data_dir", type=str, default="./data/musdb18hq", help="Chemin vers le dataset MUSDB18-HQ")
+    parser.add_argument("--data_dir", type=str, default="./data/commercial_stems", help="Dossier contenant vocals/ et instrumentals/ (CC0 / CC-BY)")
     parser.add_argument("--epochs", type=int, default=50, help="Nombre total d'époques")
     parser.add_argument("--batch_size", type=int, default=8, help="Taille des batchs")
     parser.add_argument("--lr", type=float, default=1e-3, help="Taux d'apprentissage initial")
@@ -107,7 +107,7 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"=== Entraînement VoksplitNet ===")
+    print(f"=== Entraînement VoksplitNet (100% Commercial-Compliant) ===")
     print(f"Périphérique : {device} ({torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'})")
 
     # Initialisation modèle & compteurs de paramètres
@@ -115,9 +115,9 @@ def main():
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Paramètres du modèle : {num_params:,} ({num_params * 4 / (1024*1024):.2f} Mo en FP32, ~{num_params * 2 / (1024*1024):.2f} Mo en FP16)")
 
-    # Datasets & Dataloaders
-    train_dataset = MUSDB18Dataset(args.data_dir, split="train", segment_seconds=6.0, augment=True)
-    val_dataset = MUSDB18Dataset(args.data_dir, split="test", segment_seconds=6.0, augment=False)
+    # Datasets & Dataloaders Commerciaux
+    train_dataset = CommercialStemDataset(args.data_dir, split="train", segment_seconds=6.0, augment=True)
+    val_dataset = CommercialStemDataset(args.data_dir, split="val", segment_seconds=6.0, augment=False)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=(device.type == "cuda"))
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=1)

@@ -16,15 +16,17 @@ Ce dossier contient l'ensemble du pipeline de deep learning pour entraîner et e
 
 ---
 
-## ⚖️ 2. Conformité Légale & Dataset MUSDB18-HQ
+## ⚖️ 2. Conformité Légale & Approche Commerciale (100% Libre de Droits)
 
-Contrairement aux modèles communautaires aux licences ambiguës ou restrictives, VoksplitNet est entraîné sur le dataset certifié **MUSDB18-HQ** :
-- **150 morceaux complets** non compressés (44.1 kHz, stéréo, format WAV 16-bit).
-- Pistes isolées : `vocals.wav`, `drums.wav`, `bass.wav`, `other.wav`.
-- Augmentation de données par **Remix Augmentation** : mixage dynamique d'une voix issue d'un morceau avec un instrumental issu d'un autre morceau, créant plus de 10 000 combinaisons acoustiques virtuelles.
+Contrairement aux modèles de recherche limités par des licences non-commerciales restrictives (ex: CC-BY-NC-SA de MUSDB18 ou CC-BY-NC 4.0 de Meta), VoksplitNet repose sur une approche **100% Commercial-Compliant** basée sur le **Dynamic Synthetic Remixing** :
 
-Pour télécharger le dataset MUSDB18-HQ :
-👉 [https://zenodo.org/record/3338373](https://zenodo.org/record/3338373) (~30 Go décompressé)
+- **Pistes Vocales Libres (CC0 / CC-BY / Domaine Public)** : Acapellas issues de plateformes ouvertes (ccMixter, VocalSet, Mozilla Common Voice).
+- **Pistes Instrumentales Libres (CC0 / CC-BY)** : Morceaux instrumentaux et stems de Slakh2100, Free Music Archive (FMA CC-BY/CC0).
+- **Dynamic Synthetic Remixing ($M = V + I$)** :
+  - Chaque batch d'entraînement associe aléatoirement une voix avec une piste instrumentale indépendante.
+  - Génère une combinatoire quasi-infinie (ex: 500 voix × 500 instrumentaux = **250 000 morceaux virtuels uniques**).
+  - Variations dynamiques de gain (0.7x à 1.3x), d'équilibrage et de panoramique stéréo.
+- **Zéro risque juridique** : Aucune donnée sous clause "NC" (Non-Commercial) n'est injectée dans les poids du modèle.
 
 ---
 
@@ -48,8 +50,8 @@ Si vous disposez d'un GPU Nvidia local avec CUDA :
 # 1. Installation des dépendances
 pip install torch torchaudio onnx onnxruntime onnxconverter-common
 
-# 2. Lancer l'entraînement sur MUSDB18-HQ
-python train.py --data_dir ./data/musdb18hq --epochs 50 --batch_size 8 --lr 0.001
+# 2. Lancer l'entraînement avec le dataset commercial
+python train.py --data_dir ./data/commercial_stems --epochs 50 --batch_size 8 --lr 0.001
 
 # 3. Exporter le meilleur checkpoint vers ONNX & FP16
 python export_onnx.py --checkpoint ./checkpoints/best_voksplit_model.pth --output_dir ./exported_models
