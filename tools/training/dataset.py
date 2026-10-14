@@ -47,17 +47,21 @@ class CommercialStemDataset(Dataset):
         voc_dir = os.path.join(root_dir, split, "vocals") if os.path.exists(os.path.join(root_dir, split, "vocals")) else os.path.join(root_dir, "vocals")
         ins_dir = os.path.join(root_dir, split, "instrumentals") if os.path.exists(os.path.join(root_dir, split, "instrumentals")) else os.path.join(root_dir, "instrumentals")
 
-        exts = ["*.wav", "*.mp3", "*.flac", "*.ogg"]
+        valid_exts = ('.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac', '.opus', '.aif', '.aiff')
         self.vocal_files = []
         self.instrumental_files = []
 
         if os.path.exists(voc_dir):
-            for ext in exts:
-                self.vocal_files.extend(glob.glob(os.path.join(voc_dir, "**", ext), recursive=True))
+            for root, _, files in os.walk(voc_dir):
+                for f in files:
+                    if not f.startswith('.') and f.lower().endswith(valid_exts):
+                        self.vocal_files.append(os.path.join(root, f))
 
         if os.path.exists(ins_dir):
-            for ext in exts:
-                self.instrumental_files.extend(glob.glob(os.path.join(ins_dir, "**", ext), recursive=True))
+            for root, _, files in os.walk(ins_dir):
+                for f in files:
+                    if not f.startswith('.') and f.lower().endswith(valid_exts):
+                        self.instrumental_files.append(os.path.join(root, f))
 
         self.vocal_files = sorted(self.vocal_files)
         self.instrumental_files = sorted(self.instrumental_files)
