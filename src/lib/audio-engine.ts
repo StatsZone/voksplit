@@ -112,15 +112,15 @@ export async function separateAudioAI(
 
       if (data.type === 'status') {
         onProgress?.({ message: data.msg, progress: data.progress });
-      } else if (data.type === 'done') {
+      } else if (data.type === 'done' || data.type === 'complete') {
         worker.terminate();
         resolve({
-          instrumental: data.instrumentalBlob,
-          vocals: data.vocalBlob,
+          instrumental: data.instrumentalBlob || data.blob,
+          vocals: data.vocalsBlob || data.vocalBlob,
         });
       } else if (data.type === 'error') {
         worker.terminate();
-        reject(new Error(data.message));
+        reject(new Error(data.message || data.error));
       }
     };
 

@@ -48,10 +48,11 @@ export default function StudioPage() {
 
   useEffect(() => {
     return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
       if (instruUrl) URL.revokeObjectURL(instruUrl);
       if (vocalsUrl) URL.revokeObjectURL(vocalsUrl);
     };
-  }, [instruUrl, vocalsUrl]);
+  }, [audioUrl, instruUrl, vocalsUrl]);
 
   // Charger l'historique local au montage
   useEffect(() => {
@@ -70,6 +71,7 @@ export default function StudioPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
       setSelectedFile(file);
       setAudioUrl(URL.createObjectURL(file));
       setCurrentResult(null);
