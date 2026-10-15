@@ -18,7 +18,9 @@ export class VoksplitProcessor {
     this.fftSize = 2048;
     this.hopSize = 512;
     this.numBins = 1024; // 1024 bacs de fréquence (sur 1025)
-    this.segmentSamples = 44100 * 6; // Segments de 6 secondes
+    // 512 trames exactes pour correspondre aux 3 niveaux de pooling x2 du U-Net (2^3 = 8)
+    // Formule STFT : (512 - 1) * 512 + 2048 = 263680 échantillons (~5.98 secondes)
+    this.segmentSamples = 263680;
     this.overlapRatio = 0.5; // 50% de recouvrement pour un fondu enchaîné parfait
   }
 
@@ -62,7 +64,8 @@ export class VoksplitProcessor {
       // 1. Calcul STFT pour gauche et droite
       const stftL = stft(chunkL, this.fftSize, this.hopSize);
       const stftR = stft(chunkR, this.fftSize, this.hopSize);
-      const numFrames = stftL.numFrames;
+      // Garantir strictement un multiple de 8 pour les skip-connections du décodeur U-Net
+      const numFrames = Math.floor(stftL.numFrames / 8) * 8;
       const numBinsTotal = stftL.numBins; // 1025
 
       // 2. Calcul des magnitudes et préparation du tenseur [1, 2, 1024, numFrames]
