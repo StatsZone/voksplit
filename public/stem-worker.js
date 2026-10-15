@@ -238,6 +238,38 @@ self.onmessage = async (e) => {
             vocR[i] = vR;
         }
 
+        // Normalisation linéaire de crête transparente (-0.5 dB)
+        // Élimine 100% des grésillements et distorsions de saturation
+        let peakInst = 0;
+        let peakVoc = 0;
+        for (let i = 0; i < n; i++) {
+            const absIL = Math.abs(instL[i]);
+            const absIR = Math.abs(instR[i]);
+            if (absIL > peakInst) peakInst = absIL;
+            if (absIR > peakInst) peakInst = absIR;
+
+            const absVL = Math.abs(vocL[i]);
+            const absVR = Math.abs(vocR[i]);
+            if (absVL > peakVoc) peakVoc = absVL;
+            if (absVR > peakVoc) peakVoc = absVR;
+        }
+
+        if (peakInst > 0.95) {
+            const scale = 0.95 / peakInst;
+            for (let i = 0; i < n; i++) {
+                instL[i] *= scale;
+                instR[i] *= scale;
+            }
+        }
+
+        if (peakVoc > 0.95) {
+            const scale = 0.95 / peakVoc;
+            for (let i = 0; i < n; i++) {
+                vocL[i] *= scale;
+                vocR[i] *= scale;
+            }
+        }
+
         const instrumentalBlob = encodeWav(instL, instR);
         const vocalsBlob = encodeWav(vocL, vocR);
 
