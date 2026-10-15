@@ -76,39 +76,23 @@ class CommercialStemDataset(Dataset):
 
     def _load_audio_chunk(self, path: str):
         try:
-            info = torchaudio.info(path)
-            total_samples = info.num_frames
-            
-            if total_samples <= self.segment_samples:
-                waveform, sr = torchaudio.load(path)
-                if sr != self.sample_rate:
-                    waveform = torchaudio.functional.resample(waveform, sr, self.sample_rate)
-                # Conversion stéréo si mono
-                if waveform.shape[0] == 1:
-                    waveform = waveform.repeat(2, 1)
-                elif waveform.shape[0] > 2:
-                    waveform = waveform[:2, :]
-                # Padding si court
-                if waveform.shape[-1] < self.segment_samples:
-                    waveform = F.pad(waveform, (0, self.segment_samples - waveform.shape[-1]))
-                return waveform[:, :self.segment_samples]
-
-            # Découpe aléatoire d'un segment de 6s
-            max_offset = max(0, total_samples - self.segment_samples)
-            offset = random.randint(0, max_offset) if self.augment else 0
-
-            waveform, sr = torchaudio.load(path, frame_offset=offset, num_frames=self.segment_samples)
+            wf, sr = torchaudio.load(path)
             if sr != self.sample_rate:
-                waveform = torchaudio.functional.resample(waveform, sr, self.sample_rate)
-            if waveform.shape[0] == 1:
-                waveform = waveform.repeat(2, 1)
-            elif waveform.shape[0] > 2:
-                waveform = waveform[:2, :]
-            if waveform.shape[-1] < self.segment_samples:
-                waveform = F.pad(waveform, (0, self.segment_samples - waveform.shape[-1]))
-            return waveform[:, :self.segment_samples]
-        except Exception:
-            # Fallback en cas d'erreur de lecture
+                wf = torchaudio.functional.resample(wf, sr, self.sample_rate)
+            if wf.shape[0] == 1:
+                wf = wf.repeat(2, 1)
+            elif wf.shape[0] > 2:
+                wf = wf[:2, :]
+
+            total_samples = wf.shape[-1]
+            if total_samples > self.segment_samples:
+                max_offset = total_samples - self.segment_samples
+                offset = random.randint(0, max_offset) if self.augment else 0
+                return wf[:, offset:offset + self.segment_samples]
+            elif total_samples < self.segment_samples:
+                return F.pad(wf, (0, self.segment_samples - total_samples))
+            return wf
+        except Exception as e:
             return torch.zeros(2, self.segment_samples)
 
     def _compute_stft_magnitude(self, waveform: torch.Tensor):
