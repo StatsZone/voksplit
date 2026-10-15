@@ -61,6 +61,6 @@ self.addEventListener('fetch', (e) => {
           return netRes;
         })
       );
-    }).catch(() => caches.match('/'))
+    }).catch(async () => (await caches.match('/')) || new Response('Hors-ligne', { status: 503 }))
   );
 });
