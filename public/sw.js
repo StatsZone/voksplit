@@ -1,15 +1,15 @@
 // public/sw.js - Service Worker de Voksplit pour le mode PWA et cache offline
 
-const CACHE_NAME = 'voksplit-shell-v5';
+const CACHE_NAME = 'voksplit-shell-v6';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/stem-worker.js',
-  '/vendor/demucs-web/index.js?v=14.68.19',
+  '/vendor/demucs-web/index.js?v=14.68.20',
   '/vendor/demucs-web/constants.js',
   '/vendor/demucs-web/fft.js',
   '/vendor/demucs-web/processor.js',
-  '/vendor/demucs-web/voksplit-processor.js?v=14.68.19'
+  '/vendor/demucs-web/voksplit-processor.js?v=14.68.20'
 ];
 
 self.addEventListener('install', (e) => {
