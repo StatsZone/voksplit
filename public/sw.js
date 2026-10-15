@@ -1,6 +1,6 @@
 // public/sw.js - Service Worker de Voksplit pour le mode PWA et cache offline
 
-const CACHE_NAME = 'voksplit-shell-v3';
+const CACHE_NAME = 'voksplit-shell-v4';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -49,18 +49,32 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // Stratégie Network-First avec secours Cache pour toujours servir la dernière version de Next.js
   e.respondWith(
-    caches.match(e.request).then((res) => {
-      return (
-        res ||
-        fetch(e.request).then((netRes) => {
-          if (netRes && netRes.status === 200) {
-            const clone = netRes.clone();
-            caches.open(CACHE_NAME).then((c) => c.put(e.request, clone).catch(() => {})).catch(() => {});
-          }
-          return netRes;
-        })
-      );
-    }).catch(async () => (await caches.match('/')) || new Response('Hors-ligne', { status: 503 }))
+    fetch(e.request)
+      .then((netRes) => {
+        if (netRes && netRes.status === 200) {
+          const clone = netRes.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(e.request, clone).catch(() => {})).catch(() => {});
+        }
+        return netRes;
+      })
+      .catch(async () => {
+        const cached = await caches.match(e.request);
+        if (cached) return cached;
+
+        // Ne renvoyer le HTML racine que pour les requêtes de navigation
+        if (e.request.mode === 'navigate') {
+          const fallback = (await caches.match('/')) || (await caches.match('/index.html'));
+          if (fallback) return fallback;
+        }
+
+        // Pour les styles et scripts, ne JAMAIS renvoyer du HTML (évite les erreurs strict MIME checking)
+        return new Response('Ressource non disponible hors-ligne', {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      })
   );
 });
