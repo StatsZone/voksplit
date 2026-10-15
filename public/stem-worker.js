@@ -4,7 +4,7 @@
 
 const ORT_VERSION = '1.20.1';
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
-const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js';
+const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.19';
 
 // Modèle VoksplitNet Propriétaire (Local, ~16 Mo FP16, 100% Commercial-Compliant)
 const VOKSPLIT_MODEL_URL = '/models/voksplit-net-fp16.onnx';
