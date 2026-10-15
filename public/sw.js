@@ -1,6 +1,6 @@
 // public/sw.js - Service Worker de Voksplit pour le mode PWA et cache offline
 
-const CACHE_NAME = 'voksplit-shell-v2';
+const CACHE_NAME = 'voksplit-shell-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -8,7 +8,8 @@ const STATIC_ASSETS = [
   '/vendor/demucs-web/index.js',
   '/vendor/demucs-web/constants.js',
   '/vendor/demucs-web/fft.js',
-  '/vendor/demucs-web/processor.js'
+  '/vendor/demucs-web/processor.js',
+  '/vendor/demucs-web/voksplit-processor.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -38,7 +39,13 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
   // Ignorer les requêtes externes et modèles lourds pour ce cache shell
-  if (url.origin !== self.location.origin || url.hostname.includes('huggingface.co') || url.pathname.includes('/ort-wasm/')) {
+  if (
+    url.origin !== self.location.origin ||
+    url.hostname.includes('huggingface.co') ||
+    url.pathname.includes('/ort-wasm/') ||
+    url.pathname.includes('/models/') ||
+    url.pathname.endsWith('.onnx')
+  ) {
     return;
   }
 
