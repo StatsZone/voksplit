@@ -8,7 +8,7 @@ const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.20';
 
 // Modèle VoksplitNet Propriétaire (Local, ~16 Mo FP16, 100% Commercial-Compliant)
 const VOKSPLIT_MODEL_URL = '/models/voksplit-net-fp16.onnx';
-let VOKSPLIT_MODEL_SHA256 = '770d2a909fc4f0477d04cfa4faee208a43bdc2abb8307d2f078555d5aeea0dd9'; // Mis à jour dynamiquement ou après export Colab
+let VOKSPLIT_MODEL_SHA256 = '98dc7fa58831ec0aa68012636da72f6af4ee5ac41e60fd19c34cd4af5aeed468'; // Mis à jour dynamiquement ou après export Colab
 
 // Modèle de secours distant (si voksplit-net-fp16.onnx n'est pas encore présent)
 const FALLBACK_MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
