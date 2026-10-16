@@ -43,22 +43,27 @@ async function verifyAndGetBuffer(buffer, expectedHash) {
     return buffer;
 }
 
-async function getModelBuffer(id) {
+let processorCache = new Map();
+
+async function getModelBuffer(id, engine = 'demucs') {
     let cache = null;
     try { cache = await caches.open(AI_MODEL_CACHE); } catch (e) {}
 
-    // 1. Tester la présence du modèle local VoksplitNet
     let useLocal = false;
-    try {
-        const testRes = await fetch(VOKSPLIT_MODEL_URL, { method: 'HEAD' });
-        if (testRes.ok && testRes.headers.get('content-type') !== 'text/html') {
-            useLocal = true;
-        }
-    } catch (e) {}
+    if (engine === 'voksplit') {
+        try {
+            const testRes = await fetch(VOKSPLIT_MODEL_URL, { method: 'HEAD' });
+            if (testRes.ok && testRes.headers.get('content-type') !== 'text/html') {
+                useLocal = true;
+            }
+        } catch (e) {}
+    } else {
+        useLocal = false; // Demucs Web (HTDemucs Studio)
+    }
 
     const targetUrl = useLocal ? VOKSPLIT_MODEL_URL : FALLBACK_MODEL_URL;
     const targetHash = useLocal ? VOKSPLIT_MODEL_SHA256 : FALLBACK_MODEL_SHA256;
-    const modelName = useLocal ? "VoksplitNet (Propriétaire Haute Fidélité)" : "IA Embarquée (Secours)";
+    const modelName = useLocal ? "VoksplitNet (Propriétaire Léger 6.5 Mo)" : "HTDemucs (Qualité Studio Référence)";
 
     if (cache) {
         const cached = await cache.match(targetUrl);
@@ -113,9 +118,9 @@ async function getModelBuffer(id) {
     return { buffer: verified, isVoksplit: useLocal };
 }
 
-function getProcessor(id) {
-    if (processorPromise) return processorPromise;
-    processorPromise = (async () => {
+function getProcessor(id, engine = 'demucs') {
+    if (processorCache.has(engine)) return processorCache.get(engine);
+    const promise = (async () => {
         const ort = await import(`${ORT_BASE}ort.webgpu.min.mjs`);
         ort.env.wasm.wasmPaths = ORT_BASE;
         ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(navigator.hardwareConcurrency || 4, 8) : 1;
@@ -137,7 +142,7 @@ function getProcessor(id) {
         }
 
         const sessionOptions = { executionProviders: providers, enableCpuMemArena: false, enableMemPattern: false };
-        const { buffer: modelBuffer, isVoksplit } = await getModelBuffer(id);
+        const { buffer: modelBuffer, isVoksplit } = await getModelBuffer(id, engine);
 
         let processor;
         if (isVoksplit) {
@@ -163,8 +168,9 @@ function getProcessor(id) {
         await processor.loadModel(modelBuffer);
         return processor;
     })();
-    processorPromise.catch(() => { processorPromise = null; });
-    return processorPromise;
+    processorCache.set(engine, promise);
+    promise.catch(() => { processorCache.delete(engine); });
+    return promise;
 }
 
 function encodeWav(left, right) {
@@ -197,10 +203,10 @@ function encodeWav(left, right) {
 }
 
 self.onmessage = async (e) => {
-    const { id, left, right } = e.data || {};
+    const { id, left, right, engine = 'demucs' } = e.data || {};
     try {
         status(id, "Préparation de l'IA locale...", 0.05);
-        const processor = await getProcessor(id);
+        const processor = await getProcessor(id, engine);
 
         segmentCb = ({ currentSegment, totalSegments }) => {
             status(id, `Séparation en cours : ${Math.round((currentSegment / totalSegments) * 100)} %`, 0.35 + 0.6 * (currentSegment / totalSegments));

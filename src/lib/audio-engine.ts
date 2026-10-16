@@ -94,7 +94,8 @@ export async function decodeAudioTo44k(fileOrBlob: Blob): Promise<{ left: Float3
 /** Séparation IA Haute Fidélité via Web Worker non-bloquant */
 export async function separateAudioAI(
   blob: Blob,
-  onProgress?: (info: SeparationProgress) => void
+  onProgress?: (info: SeparationProgress) => void,
+  engine: 'demucs' | 'voksplit' = 'demucs'
 ): Promise<SeparationResult> {
   onProgress?.({ message: 'Décodage et normalisation audio...', progress: 0.05 });
   const { left, right } = await decodeAudioTo44k(blob);
@@ -129,7 +130,7 @@ export async function separateAudioAI(
       reject(new Error(err && err.message ? err.message : 'Erreur dans le Web Worker de séparation audio'));
     };
 
-    worker.postMessage({ id, left: lCopy, right: rCopy }, [lCopy.buffer, rCopy.buffer]);
+    worker.postMessage({ id, left: lCopy, right: rCopy, engine }, [lCopy.buffer, rCopy.buffer]);
   });
 }
 

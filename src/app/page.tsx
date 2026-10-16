@@ -25,6 +25,7 @@ export default function StudioPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState('Prêt pour la séparation');
   const [progressPct, setProgressPct] = useState(0);
+  const [selectedEngine, setSelectedEngine] = useState<'demucs' | 'voksplit'>('demucs');
 
   // Résultats actuels
   const [currentResult, setCurrentResult] = useState<SeparationResult | null>(null);
@@ -107,10 +108,14 @@ export default function StudioPage() {
     setProgressMsg('Initialisation...');
 
     try {
-      const res = await separateAudioAI(selectedFile, ({ message, progress }) => {
-        setProgressMsg(message);
-        setProgressPct(Math.round(progress * 100));
-      });
+      const res = await separateAudioAI(
+        selectedFile,
+        ({ message, progress }) => {
+          setProgressMsg(message);
+          setProgressPct(Math.round(progress * 100));
+        },
+        selectedEngine
+      );
 
       setCurrentResult(res);
       setProgressPct(100);
@@ -272,7 +277,40 @@ export default function StudioPage() {
                 />
               </div>
 
-              <div className="flex justify-end gap-3 mt-2">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 pb-1 border-t border-slate-800/80">
+                <span className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
+                  <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                  Moteur IA :
+                </span>
+                <div className="flex items-center gap-2 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEngine('demucs')}
+                    disabled={isProcessing}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      selectedEngine === 'demucs'
+                        ? 'bg-gradient-to-r from-cyan-500 to-indigo-500 text-slate-950 shadow-md font-bold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Studio HTDemucs (Sans Voix 99.9%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEngine('voksplit')}
+                    disabled={isProcessing}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      selectedEngine === 'voksplit'
+                        ? 'bg-gradient-to-r from-cyan-500 to-indigo-500 text-slate-950 shadow-md font-bold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    VoksplitNet (Léger 6.5 Mo)
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-1">
                 <button
                   type="button"
                   onClick={handleStartSeparation}
