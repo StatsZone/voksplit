@@ -37,22 +37,41 @@ export default function StudioPage() {
   const audioRefInstru = useRef<HTMLAudioElement | null>(null);
   const audioRefVocals = useRef<HTMLAudioElement | null>(null);
 
-  // URLs Blob mémorisées et stables (évite toute réallocation en cours de lecture = zéro grésillement)
-  const instruUrl = useMemo(() => {
-    return currentResult?.instrumental ? URL.createObjectURL(currentResult.instrumental) : null;
-  }, [currentResult?.instrumental]);
+  // URLs Blob mémorisées et stables pour les stems et la piste originale
+  const [instruUrl, setInstruUrl] = useState<string | null>(null);
+  const [vocalsUrl, setVocalsUrl] = useState<string | null>(null);
 
-  const vocalsUrl = useMemo(() => {
-    return currentResult?.vocals ? URL.createObjectURL(currentResult.vocals) : null;
-  }, [currentResult?.vocals]);
-
+  // Gestion du cycle de vie de l'URL du fichier original
   useEffect(() => {
+    if (!selectedFile) {
+      setAudioUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(selectedFile);
+    setAudioUrl(url);
+
     return () => {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
-      if (instruUrl) URL.revokeObjectURL(instruUrl);
-      if (vocalsUrl) URL.revokeObjectURL(vocalsUrl);
+      URL.revokeObjectURL(url);
     };
-  }, [audioUrl, instruUrl, vocalsUrl]);
+  }, [selectedFile]);
+
+  // Gestion du cycle de vie des URLs des stems
+  useEffect(() => {
+    if (!currentResult) {
+      setInstruUrl(null);
+      setVocalsUrl(null);
+      return;
+    }
+    const iUrl = currentResult.instrumental ? URL.createObjectURL(currentResult.instrumental) : null;
+    const vUrl = currentResult.vocals ? URL.createObjectURL(currentResult.vocals) : null;
+    setInstruUrl(iUrl);
+    setVocalsUrl(vUrl);
+
+    return () => {
+      if (iUrl) URL.revokeObjectURL(iUrl);
+      if (vUrl) URL.revokeObjectURL(vUrl);
+    };
+  }, [currentResult]);
 
   // Charger l'historique local au montage
   useEffect(() => {
@@ -71,9 +90,7 @@ export default function StudioPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
       setSelectedFile(file);
-      setAudioUrl(URL.createObjectURL(file));
       setCurrentResult(null);
       setActiveStem('orig');
       setIsPlaying(false);
@@ -162,8 +179,12 @@ export default function StudioPage() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'audio'}_${suffix}.wav`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 10000);
   };
 
   return (
