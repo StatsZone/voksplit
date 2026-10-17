@@ -14,7 +14,7 @@ let VOKSPLIT_MODEL_SHA256 = '98dc7fa58831ec0aa68012636da72f6af4ee5ac41e60fd19c34
 const FALLBACK_MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
 const FALLBACK_MODEL_SHA256 = 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077';
 
-const AI_MODEL_CACHE = 'voksplit-ai-model-v2';
+const AI_MODEL_CACHE = 'voksplit-ai-model-v3';
 const SAMPLE_RATE = 44100;
 
 let processorPromise = null;
@@ -45,20 +45,22 @@ async function verifyAndGetBuffer(buffer, expectedHash) {
 
 let processorCache = new Map();
 
-async function getModelBuffer(id, engine = 'demucs') {
+async function getModelBuffer(id, engine = 'voksplit') {
     let cache = null;
     try { cache = await caches.open(AI_MODEL_CACHE); } catch (e) {}
 
-    let useLocal = false;
-    if (engine === 'voksplit') {
+    let useLocal = true;
+    if (engine === 'demucs') {
+        useLocal = false;
+    } else {
         try {
             const testRes = await fetch(VOKSPLIT_MODEL_URL, { method: 'HEAD' });
-            if (testRes.ok && testRes.headers.get('content-type') !== 'text/html') {
-                useLocal = true;
+            if (!testRes.ok || testRes.headers.get('content-type') !== 'text/html') {
+                useLocal = false;
             }
-        } catch (e) {}
-    } else {
-        useLocal = false; // Demucs Web (HTDemucs Studio)
+        } catch (e) {
+            useLocal = false;
+        }
     }
 
     const targetUrl = useLocal ? VOKSPLIT_MODEL_URL : FALLBACK_MODEL_URL;
@@ -203,7 +205,7 @@ function encodeWav(left, right) {
 }
 
 self.onmessage = async (e) => {
-    const { id, left, right, engine = 'demucs' } = e.data || {};
+    const { id, left, right, engine = 'voksplit' } = e.data || {};
     try {
         status(id, "Préparation de l'IA locale...", 0.05);
         const processor = await getProcessor(id, engine);
