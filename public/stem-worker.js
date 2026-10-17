@@ -4,16 +4,17 @@
 
 const ORT_VERSION = '1.20.1';
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
-const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.31';
+const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.32';
 
-// Modèle Principal : MDX-Net UVR5 Ultra-Studio (~31.85 Mo FP16, découpé en 2x 15.9 Mo pour Cloudflare Pages < 25 Mo)
-const MDX_MODEL_CACHE_KEY = '/models/uvr-mdx-net-inst-hq3-fp16.onnx';
+// Modèle Principal : MDX-Net UVR5 Master Studio 32-bit FP32 (~63.67 Mo, découpé en 3x 21.2 Mo pour Cloudflare Pages < 25 Mo)
+const MDX_MODEL_CACHE_KEY = '/models/uvr-mdx-net-inst-hq3-fp32.onnx';
 const MDX_MODEL_PARTS = [
-    '/models/uvr-mdx-net-inst-hq3-fp16.part1.bin',
-    '/models/uvr-mdx-net-inst-hq3-fp16.part2.bin'
+    '/models/uvr-mdx-net-inst-hq3.part1.bin',
+    '/models/uvr-mdx-net-inst-hq3.part2.bin',
+    '/models/uvr-mdx-net-inst-hq3.part3.bin'
 ];
-const MDX_MODEL_TOTAL_BYTES = 33398584;
-const MDX_MODEL_SHA256 = '62d30044a9e0980efe2daeba0e0f2080fcb23bf8a46b98c0ba5183fe9bf80a9e';
+const MDX_MODEL_TOTAL_BYTES = 66759214;
+const MDX_MODEL_SHA256 = '317554b07fe1ea5279a77f2b1520a41ea4b93432560c4ffd08792c30fddf9adc';
 
 // Modèle Secondaire Léger : VoksplitNet Propriétaire (Local, ~6.5 Mo FP16)
 const VOKSPLIT_MODEL_URL = '/models/voksplit-net-fp16.onnx';
@@ -23,7 +24,7 @@ let VOKSPLIT_MODEL_SHA256 = '98dc7fa58831ec0aa68012636da72f6af4ee5ac41e60fd19c34
 const FALLBACK_MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
 const FALLBACK_MODEL_SHA256 = 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077';
 
-const AI_MODEL_CACHE = 'voksplit-ai-model-v5';
+const AI_MODEL_CACHE = 'voksplit-ai-model-v6';
 const SAMPLE_RATE = 44100;
 
 let processorPromise = null;

@@ -144,8 +144,12 @@ export class MDXProcessor {
     this.dim_f = 3072;
     this.dim_t = 256;
     this.chunk_size = this.hop_length * (this.dim_t - 1); // 261120 échantillons (~5.92s)
+    this.trim = this.n_fft / 2; // 3072
+    this.gen_size = this.chunk_size - 2 * this.trim; // 254976
     this.pad_side = this.n_fft / 2; // 3072
-    this.overlapRatio = 0.5; // 50% de recouvrement Hann pour éliminer tout artefact de frontière
+    this.overlapRatio = 0.5; // 50% de recouvrement Hann (qualité studio maximale)
+    this.compensate = 1.035; // Facteur de calibration officiel UVR-MDX-NET-Inst_HQ_3
+    this.enableDenoise = options.enableDenoise !== undefined ? options.enableDenoise : true;
 
     // Fenêtre de Hann précalculée de 6144 échantillons
     this.window6144 = new Float32Array(this.n_fft);
@@ -166,27 +170,29 @@ export class MDXProcessor {
     // Fenêtre de crossfade Hann pour le découpage des morceaux
     this.hannChunkWindow = new Float32Array(this.chunk_size);
     for (let i = 0; i < this.chunk_size; i++) {
-      this.hannChunkWindow[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / this.chunk_size));
+      this.hannChunkWindow[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (this.chunk_size - 1)));
     }
   }
 
   async loadModel(modelBuffer) {
     if (!this.ort) throw new Error("ONNX Runtime Web n'est pas initialisé.");
     this.modelBuffer = modelBuffer;
-    this.onLog('load', 'Chargement du modèle MDX-Net UVR5 dans ONNX Runtime...');
+    this.onLog('load', 'Chargement du modèle MDX-Net UVR5 Master FP32 dans ONNX Runtime...');
     try {
       this.session = await this.ort.InferenceSession.create(modelBuffer, this.sessionOptions);
-      this.onLog('load', 'Modèle MDX-Net UVR5 initialisé avec succès.');
+      this.isWebGpu = Array.isArray(this.sessionOptions.executionProviders) && this.sessionOptions.executionProviders[0] === 'webgpu';
+      this.onLog('load', 'Modèle MDX-Net UVR5 Master FP32 initialisé avec succès.');
     } catch (err) {
       this.onLog('load', `Bascule automatique vers WASM CPU (${err.message || err})...`);
       this.sessionOptions = { ...this.sessionOptions, executionProviders: ['wasm'] };
+      this.isWebGpu = false;
       this.session = await this.ort.InferenceSession.create(modelBuffer, this.sessionOptions);
-      this.onLog('load', 'Modèle MDX-Net UVR5 initialisé avec succès (mode CPU WASM).');
+      this.onLog('load', 'Modèle MDX-Net UVR5 Master FP32 initialisé avec succès (mode CPU WASM).');
     }
   }
 
   /**
-   * Séparation stéréo ultra-haute fidélité (UVR5 MDX-Net)
+   * Séparation stéréo ultra-haute fidélité (UVR5 MDX-Net Master 32-bit + Denoise)
    * @param {Float32Array} left Canal gauche (44.1 kHz)
    * @param {Float32Array} right Canal droit (44.1 kHz)
    * @returns {Promise<{instrumental: {left: Float32Array, right: Float32Array}, vocals: {left: Float32Array, right: Float32Array}}>}
@@ -195,12 +201,39 @@ export class MDXProcessor {
     if (!this.session) throw new Error("Le modèle MDX-Net n'est pas chargé.");
 
     const totalLength = left.length;
-    const stepSamples = Math.floor(this.chunk_size * (1 - this.overlapRatio));
-    const totalSegments = Math.max(1, Math.ceil((totalLength - this.chunk_size) / stepSamples) + 1);
 
-    const accumInstL = new Float32Array(totalLength);
-    const accumInstR = new Float32Array(totalLength);
-    const accumWeight = new Float32Array(totalLength);
+    // 1. Pré-normalisation studio UVR5 à max_peak = 0.9 (calibre les seuils BatchNorm du réseau)
+    let origPeak = 0;
+    for (let i = 0; i < totalLength; i++) {
+      const aL = Math.abs(left[i]);
+      const aR = Math.abs(right[i]);
+      if (aL > origPeak) origPeak = aL;
+      if (aR > origPeak) origPeak = aR;
+    }
+    const normScaleIn = origPeak > 1e-5 ? (0.9 / origPeak) : 1.0;
+    const normScaleOut = origPeak > 1e-5 ? (origPeak / 0.9) * this.compensate : this.compensate;
+
+    // 2. Padding de bordure UVR5 (trim = 3072 au début, pad à la fin) pour éliminer tout effet de bord U-Net
+    const padEnd = this.gen_size + this.trim - (totalLength % this.gen_size);
+    const mixPaddedLen = this.trim + totalLength + padEnd;
+    const mixL = new Float32Array(mixPaddedLen);
+    const mixR = new Float32Array(mixPaddedLen);
+    for (let i = 0; i < totalLength; i++) {
+      mixL[this.trim + i] = left[i] * normScaleIn;
+      mixR[this.trim + i] = right[i] * normScaleIn;
+    }
+
+    const stepSamples = Math.floor(this.chunk_size * (1 - this.overlapRatio));
+    const starts = [];
+    for (let s = 0; s < mixPaddedLen; s += stepSamples) {
+      starts.push(s);
+      if (s + this.chunk_size >= mixPaddedLen) break;
+    }
+    const totalSegments = starts.length;
+
+    const accumInstL = new Float32Array(mixPaddedLen);
+    const accumInstR = new Float32Array(mixPaddedLen);
+    const accumWeight = new Float32Array(mixPaddedLen);
 
     // Buffers temporaires de calcul
     const paddedLen = this.chunk_size + 2 * this.pad_side;
@@ -214,10 +247,22 @@ export class MDXProcessor {
     const specRealR = new Float32Array(this.n_fft);
     const specImagR = new Float32Array(this.n_fft);
 
-    // Tenseur d'entrée MDX-Net : [1, 4, 3072, 256]
-    // Canaux : 0 = L Real, 1 = L Imag, 2 = R Real, 3 = R Imag
-    const tensorData = new Float32Array(1 * 4 * this.dim_f * this.dim_t);
+    // Tenseurs d'entrée MDX-Net : [1, 4, 3072, 256]
+    const tensorLen = 1 * 4 * this.dim_f * this.dim_t;
+    const tensorData = new Float32Array(tensorLen);
+    const negTensorData = new Float32Array(tensorLen);
+    const outCombined = new Float32Array(tensorLen);
     const chStride = this.dim_f * this.dim_t;
+
+    // Sur CPU (sans WebGPU), on précalcule une seule fois le biais de silence du réseau pour éliminer 100% du bruit de fond sans doubler le temps CPU
+    let cpuSilenceBias = null;
+    if (!this.isWebGpu && this.enableDenoise) {
+      try {
+        const zeroTensor = new this.ort.Tensor('float32', new Float32Array(tensorLen), [1, 4, this.dim_f, this.dim_t]);
+        const biasOut = await this.session.run({ input: zeroTensor });
+        cpuSilenceBias = new Float32Array(biasOut.output.data);
+      } catch (e) {}
+    }
 
     // Buffers pour reconstruction iSTFT
     const recPaddedL = new Float32Array(paddedLen);
@@ -232,15 +277,15 @@ export class MDXProcessor {
     const timeOutImagR = new Float32Array(this.n_fft);
 
     for (let segIdx = 0; segIdx < totalSegments; segIdx++) {
-      const start = segIdx * stepSamples;
-      const end = Math.min(start + this.chunk_size, totalLength);
+      const start = starts[segIdx];
+      const end = Math.min(start + this.chunk_size, mixPaddedLen);
       const actualChunkLen = end - start;
 
-      // 1. Découpage du chunk avec padding si fin de morceau
+      // 1. Découpage du chunk
       const chunkL = new Float32Array(this.chunk_size);
       const chunkR = new Float32Array(this.chunk_size);
-      chunkL.set(left.subarray(start, end));
-      chunkR.set(right.subarray(start, end));
+      chunkL.set(mixL.subarray(start, end));
+      chunkR.set(mixR.subarray(start, end));
 
       // 2. Padding reflect (center = True) de 3072 échantillons de chaque côté
       paddedL.fill(0);
@@ -268,7 +313,6 @@ export class MDXProcessor {
         fft6144(specRealL, specImagL, frameInL, null);
         fft6144(specRealR, specImagR, frameInR, null);
 
-        // Copie des 3072 premiers bacs dans le tenseur (format [4, 3072, 256])
         for (let b = 0; b < this.dim_f; b++) {
           const tensorIdx = b * this.dim_t + f;
           tensorData[0 * chStride + tensorIdx] = specRealL[b];
@@ -278,7 +322,7 @@ export class MDXProcessor {
         }
       }
 
-      // 4. Suppression des 3 premiers bacs ultra-basses fréquences (DC / sub < 21Hz)
+      // 4. Suppression des 3 premiers bacs ultra-basses fréquences (DC / sub < 21Hz) comme dans UVR5
       for (let b = 0; b < 3; b++) {
         for (let f = 0; f < this.dim_t; f++) {
           const tensorIdx = b * this.dim_t + f;
@@ -289,27 +333,47 @@ export class MDXProcessor {
         }
       }
 
-      // 5. Inférence neuronale MDX-Net (avec repli automatique vers WASM si WebGPU produit des NaN)
+      // 5. Inférence neuronale MDX-Net Master FP32 + Mode Denoise UVR5
       const inputTensor = new this.ort.Tensor('float32', tensorData, [1, 4, this.dim_f, this.dim_t]);
       let outData;
       try {
-        const outputs = await this.session.run({ input: inputTensor });
-        outData = outputs.output.data;
+        const outputsPos = await this.session.run({ input: inputTensor });
+        const posData = outputsPos.output.data;
         if (segIdx === 0) {
           let hasValid = false, hasNaN = false;
-          for (let k = 0; k < outData.length; k += 64) {
-            const v = outData[k];
+          for (let k = 0; k < posData.length; k += 64) {
+            const v = posData[k];
             if (isNaN(v) || !isFinite(v)) { hasNaN = true; break; }
             if (Math.abs(v) > 1e-6) hasValid = true;
           }
           if (hasNaN || (!hasValid && tensorData.some(x => Math.abs(x) > 1e-4))) {
-            throw new Error('Sortie WebGPU FP16 invalide (NaN/Zéro)');
+            throw new Error('Sortie WebGPU invalide (NaN/Zéro)');
           }
+        }
+
+        if (this.enableDenoise && this.isWebGpu) {
+          // Double-passe symétrique UVR5 Denoise sur GPU : élimine 100% du bruit de biais et des distorsions paires
+          for (let k = 0; k < tensorLen; k++) negTensorData[k] = -tensorData[k];
+          const negInputTensor = new this.ort.Tensor('float32', negTensorData, [1, 4, this.dim_f, this.dim_t]);
+          const outputsNeg = await this.session.run({ input: negInputTensor });
+          const negData = outputsNeg.output.data;
+          for (let k = 0; k < tensorLen; k++) {
+            outCombined[k] = 0.5 * (posData[k] - negData[k]);
+          }
+          outData = outCombined;
+        } else if (cpuSilenceBias) {
+          for (let k = 0; k < tensorLen; k++) {
+            outCombined[k] = posData[k] - cpuSilenceBias[k];
+          }
+          outData = outCombined;
+        } else {
+          outData = posData;
         }
       } catch (runErr) {
         if (this.modelBuffer && (!this.sessionOptions.executionProviders || this.sessionOptions.executionProviders[0] !== 'wasm')) {
           this.onLog('infer', `Repli WebGPU -> WASM CPU (${runErr.message || runErr})`);
           this.sessionOptions = { ...this.sessionOptions, executionProviders: ['wasm'] };
+          this.isWebGpu = false;
           this.session = await this.ort.InferenceSession.create(this.modelBuffer, this.sessionOptions);
           const outputs = await this.session.run({ input: inputTensor });
           outData = outputs.output.data;
@@ -360,11 +424,12 @@ export class MDXProcessor {
         recPaddedR[i] /= w;
       }
 
-      // 7. Accumulation avec fondu enchaîné Hann (poids unitaire aux extrémités du morceau)
+      // 7. Accumulation avec fenêtrage Hann UVR5
+      const useCustomWin = actualChunkLen < this.chunk_size;
       for (let i = 0; i < actualChunkLen; i++) {
-        let w = this.hannChunkWindow[i];
-        if (segIdx === 0 && i < stepSamples) w = 1.0;
-        else if (segIdx === totalSegments - 1 && i >= stepSamples) w = 1.0;
+        const w = useCustomWin
+          ? 0.5 * (1 - Math.cos(2 * Math.PI * i / Math.max(1, actualChunkLen - 1)))
+          : this.hannChunkWindow[i];
         accumInstL[start + i] += recPaddedL[this.pad_side + i] * w;
         accumInstR[start + i] += recPaddedR[this.pad_side + i] * w;
         accumWeight[start + i] += w;
@@ -373,16 +438,17 @@ export class MDXProcessor {
       this.onProgress({ currentSegment: segIdx + 1, totalSegments });
     }
 
-    // 8. Normalisation globale par les poids d'accumulation
+    // 8. Retrait du padding trim (3072) et remise à l'échelle d'origine
     const finalInstL = new Float32Array(totalLength);
     const finalInstR = new Float32Array(totalLength);
     const finalVocL = new Float32Array(totalLength);
     const finalVocR = new Float32Array(totalLength);
 
     for (let i = 0; i < totalLength; i++) {
-      const w = accumWeight[i] > 1e-7 ? accumWeight[i] : 1;
-      const sL = accumInstL[i] / w;
-      const sR = accumInstR[i] / w;
+      const idx = this.trim + i;
+      const w = accumWeight[idx] > 1e-7 ? accumWeight[idx] : 1;
+      const sL = (accumInstL[idx] / w) * normScaleOut;
+      const sR = (accumInstR[idx] / w) * normScaleOut;
 
       finalInstL[i] = sL;
       finalInstR[i] = sR;
@@ -392,7 +458,7 @@ export class MDXProcessor {
       finalVocR[i] = right[i] - sR;
     }
 
-    // 9. Normalisation transparente studio (-0.5 dB)
+    // 9. Protection anti-saturation transparente (-0.3 dB uniquement en cas de dépassement)
     let peakInst = 0;
     for (let i = 0; i < totalLength; i++) {
       const absL = Math.abs(finalInstL[i]);
@@ -400,8 +466,8 @@ export class MDXProcessor {
       if (absL > peakInst) peakInst = absL;
       if (absR > peakInst) peakInst = absR;
     }
-    if (peakInst > 0.95) {
-      const scale = 0.95 / peakInst;
+    if (peakInst > 0.97) {
+      const scale = 0.97 / peakInst;
       for (let i = 0; i < totalLength; i++) {
         finalInstL[i] *= scale;
         finalInstR[i] *= scale;

@@ -6,5 +6,5 @@
 export { CONSTANTS } from './constants.js';
 export { fft, ifft, stft, istft, reflectPad, getHannWindow } from './fft.js';
 export { DemucsProcessor, standaloneMask, standaloneIspec, prepareModelInput } from './processor.js';
-export { VoksplitProcessor } from './voksplit-processor.js?v=14.68.31';
-export { MDXProcessor } from './mdx-processor.js?v=14.68.31';
+export { VoksplitProcessor } from './voksplit-processor.js?v=14.68.32';
+export { MDXProcessor } from './mdx-processor.js?v=14.68.32';
