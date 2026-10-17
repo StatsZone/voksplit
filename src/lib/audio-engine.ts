@@ -95,7 +95,7 @@ export async function decodeAudioTo44k(fileOrBlob: Blob): Promise<{ left: Float3
 export async function separateAudioAI(
   blob: Blob,
   onProgress?: (info: SeparationProgress) => void,
-  engine: 'demucs' | 'voksplit' = 'demucs'
+  engine: 'mdx' | 'voksplit' | 'demucs' = 'mdx'
 ): Promise<SeparationResult> {
   onProgress?.({ message: 'Décodage et normalisation audio...', progress: 0.05 });
   const { left, right } = await decodeAudioTo44k(blob);

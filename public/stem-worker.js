@@ -4,17 +4,21 @@
 
 const ORT_VERSION = '1.20.1';
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
-const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.20';
+const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.30';
 
-// Modèle VoksplitNet Propriétaire (Local, ~16 Mo FP16, 100% Commercial-Compliant)
+// Modèle Principal : MDX-Net UVR5 Ultra-Studio (~31.85 Mo FP16, Qualité Référence Mondiale)
+const MDX_MODEL_URL = '/models/uvr-mdx-net-inst-hq3-fp16.onnx';
+const MDX_MODEL_SHA256 = '62d30044a9e0980efe2daeba0e0f2080fcb23bf8a46b98c0ba5183fe9bf80a9e';
+
+// Modèle Secondaire Léger : VoksplitNet Propriétaire (Local, ~6.5 Mo FP16)
 const VOKSPLIT_MODEL_URL = '/models/voksplit-net-fp16.onnx';
-let VOKSPLIT_MODEL_SHA256 = '98dc7fa58831ec0aa68012636da72f6af4ee5ac41e60fd19c34cd4af5aeed468'; // Mis à jour dynamiquement ou après export Colab
+let VOKSPLIT_MODEL_SHA256 = '98dc7fa58831ec0aa68012636da72f6af4ee5ac41e60fd19c34cd4af5aeed468';
 
-// Modèle de secours distant (si voksplit-net-fp16.onnx n'est pas encore présent)
+// Modèle de secours distant (si aucun modèle local n'est accessible)
 const FALLBACK_MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
 const FALLBACK_MODEL_SHA256 = 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077';
 
-const AI_MODEL_CACHE = 'voksplit-ai-model-v3';
+const AI_MODEL_CACHE = 'voksplit-ai-model-v4';
 const SAMPLE_RATE = 44100;
 
 let processorPromise = null;
@@ -45,27 +49,42 @@ async function verifyAndGetBuffer(buffer, expectedHash) {
 
 let processorCache = new Map();
 
-async function getModelBuffer(id, engine = 'voksplit') {
+async function getModelBuffer(id, engine = 'mdx') {
     let cache = null;
     try { cache = await caches.open(AI_MODEL_CACHE); } catch (e) {}
 
-    let useLocal = true;
-    if (engine === 'demucs') {
-        useLocal = false;
+    let targetUrl = MDX_MODEL_URL;
+    let targetHash = MDX_MODEL_SHA256;
+    let modelName = "MDX-Net UVR5 (Qualité Studio 31 Mo)";
+    let modelType = 'mdx';
+
+    if (engine === 'voksplit') {
+        targetUrl = VOKSPLIT_MODEL_URL;
+        targetHash = VOKSPLIT_MODEL_SHA256;
+        modelName = "VoksplitNet (Propriétaire Léger 6.5 Mo)";
+        modelType = 'voksplit';
+    } else if (engine === 'demucs') {
+        targetUrl = FALLBACK_MODEL_URL;
+        targetHash = FALLBACK_MODEL_SHA256;
+        modelName = "HTDemucs (Secours Distant 180 Mo)";
+        modelType = 'demucs';
     } else {
+        // MDX par défaut : vérifier si disponible, sinon basculer proprement sur VoksplitNet
         try {
-            const testRes = await fetch(VOKSPLIT_MODEL_URL, { method: 'HEAD' });
-            if (!testRes.ok || testRes.headers.get('content-type') !== 'text/html') {
-                useLocal = false;
+            const testRes = await fetch(MDX_MODEL_URL, { method: 'HEAD' });
+            if (!testRes.ok || testRes.headers.get('content-type') === 'text/html') {
+                targetUrl = VOKSPLIT_MODEL_URL;
+                targetHash = VOKSPLIT_MODEL_SHA256;
+                modelName = "VoksplitNet (Secours Local 6.5 Mo)";
+                modelType = 'voksplit';
             }
         } catch (e) {
-            useLocal = false;
+            targetUrl = VOKSPLIT_MODEL_URL;
+            targetHash = VOKSPLIT_MODEL_SHA256;
+            modelName = "VoksplitNet (Secours Local 6.5 Mo)";
+            modelType = 'voksplit';
         }
     }
-
-    const targetUrl = useLocal ? VOKSPLIT_MODEL_URL : FALLBACK_MODEL_URL;
-    const targetHash = useLocal ? VOKSPLIT_MODEL_SHA256 : FALLBACK_MODEL_SHA256;
-    const modelName = useLocal ? "VoksplitNet (Propriétaire Léger 6.5 Mo)" : "HTDemucs (Qualité Studio Référence)";
 
     if (cache) {
         const cached = await cache.match(targetUrl);
@@ -74,7 +93,7 @@ async function getModelBuffer(id, engine = 'voksplit') {
             const buf = await cached.arrayBuffer();
             try {
                 const verified = await verifyAndGetBuffer(buf, targetHash);
-                return { buffer: verified, isVoksplit: useLocal };
+                return { buffer: verified, modelType };
             } catch (err) {
                 console.warn("[Voksplit Worker] Cache corrompu, nouveau téléchargement...");
                 await cache.delete(targetUrl);
@@ -84,7 +103,7 @@ async function getModelBuffer(id, engine = 'voksplit') {
 
     const response = await fetch(targetUrl);
     if (!response.ok) throw new Error(`Téléchargement du modèle IA impossible (HTTP ${response.status})`);
-    const total = parseInt(response.headers.get('Content-Length') || '0', 10) || (useLocal ? 16777216 : 180534758);
+    const total = parseInt(response.headers.get('Content-Length') || '0', 10) || (modelType === 'mdx' ? 33396736 : 6856957);
     const reader = response.body.getReader();
     const chunks = [];
     let loaded = 0;
@@ -117,10 +136,10 @@ async function getModelBuffer(id, engine = 'voksplit') {
         }
     }
 
-    return { buffer: verified, isVoksplit: useLocal };
+    return { buffer: verified, modelType };
 }
 
-function getProcessor(id, engine = 'demucs') {
+function getProcessor(id, engine = 'mdx') {
     if (processorCache.has(engine)) return processorCache.get(engine);
     const promise = (async () => {
         const ort = await import(`${ORT_BASE}ort.webgpu.min.mjs`);
@@ -144,10 +163,18 @@ function getProcessor(id, engine = 'demucs') {
         }
 
         const sessionOptions = { executionProviders: providers, enableCpuMemArena: false, enableMemPattern: false };
-        const { buffer: modelBuffer, isVoksplit } = await getModelBuffer(id, engine);
+        const { buffer: modelBuffer, modelType } = await getModelBuffer(id, engine);
 
         let processor;
-        if (isVoksplit) {
+        if (modelType === 'mdx') {
+            const { MDXProcessor } = await import(DEMUCS_LOCAL_PATH);
+            processor = new MDXProcessor({
+                ort,
+                sessionOptions,
+                onProgress: (info) => segmentCb(info),
+                onLog: (phase, msg) => console.log(`[MDX-Net][${phase}] ${msg}`)
+            });
+        } else if (modelType === 'voksplit') {
             const { VoksplitProcessor } = await import(DEMUCS_LOCAL_PATH);
             processor = new VoksplitProcessor({
                 ort,
@@ -165,7 +192,7 @@ function getProcessor(id, engine = 'demucs') {
             });
         }
 
-        const initMsg = hasWebGpu ? "Initialisation de l'IA (GPU ultra-rapide ⚡)..." : "Initialisation de l'IA (Mode CPU multicœur)...";
+        const initMsg = hasWebGpu ? "Initialisation MDX Studio (WebGPU ⚡)..." : "Initialisation MDX Studio (CPU multicœur)...";
         status(id, initMsg, 0.32);
         await processor.loadModel(modelBuffer);
         return processor;
@@ -205,7 +232,7 @@ function encodeWav(left, right) {
 }
 
 self.onmessage = async (e) => {
-    const { id, left, right, engine = 'voksplit' } = e.data || {};
+    const { id, left, right, engine = 'mdx' } = e.data || {};
     try {
         status(id, "Préparation de l'IA locale...", 0.05);
         const processor = await getProcessor(id, engine);
