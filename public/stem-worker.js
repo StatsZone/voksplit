@@ -29,6 +29,22 @@ const SAMPLE_RATE = 44100;
 
 let processorPromise = null;
 let segmentCb = () => {};
+let obsoleteCachesCleaned = false;
+
+async function cleanupObsoleteModelCaches() {
+    if (obsoleteCachesCleaned || typeof caches === 'undefined') return;
+    obsoleteCachesCleaned = true;
+    try {
+        const keys = await caches.keys();
+        await Promise.all(
+            keys.map((key) => {
+                if ((key.startsWith('voksplit-ai-model') || key.startsWith('soundcapsule-ai-model')) && key !== AI_MODEL_CACHE) {
+                    return caches.delete(key);
+                }
+            })
+        );
+    } catch (e) {}
+}
 
 const status = (id, msg, progress) => self.postMessage({ id, type: 'status', msg, progress });
 
@@ -73,6 +89,7 @@ async function fetchStreamIntoChunks(url, chunks, onBytesLoaded) {
 }
 
 async function getModelBuffer(id, engine = 'mdx') {
+    await cleanupObsoleteModelCaches();
     let cache = null;
     try { cache = await caches.open(AI_MODEL_CACHE); } catch (e) {}
 
@@ -80,7 +97,7 @@ async function getModelBuffer(id, engine = 'mdx') {
     let targetUrls = MDX_MODEL_PARTS;
     let targetHash = MDX_MODEL_SHA256;
     let expectedTotal = MDX_MODEL_TOTAL_BYTES;
-    let modelName = "MDX-Net UVR5 (Qualité Studio 31 Mo)";
+    let modelName = "MDX-Net UVR5 Master FP32 (Qualité Studio 63 Mo)";
     let modelType = 'mdx';
 
     if (engine === 'voksplit') {
