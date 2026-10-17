@@ -172,9 +172,17 @@ export class MDXProcessor {
 
   async loadModel(modelBuffer) {
     if (!this.ort) throw new Error("ONNX Runtime Web n'est pas initialisé.");
+    this.modelBuffer = modelBuffer;
     this.onLog('load', 'Chargement du modèle MDX-Net UVR5 dans ONNX Runtime...');
-    this.session = await this.ort.InferenceSession.create(modelBuffer, this.sessionOptions);
-    this.onLog('load', 'Modèle MDX-Net UVR5 initialisé avec succès.');
+    try {
+      this.session = await this.ort.InferenceSession.create(modelBuffer, this.sessionOptions);
+      this.onLog('load', 'Modèle MDX-Net UVR5 initialisé avec succès.');
+    } catch (err) {
+      this.onLog('load', `Bascule automatique vers WASM CPU (${err.message || err})...`);
+      this.sessionOptions = { ...this.sessionOptions, executionProviders: ['wasm'] };
+      this.session = await this.ort.InferenceSession.create(modelBuffer, this.sessionOptions);
+      this.onLog('load', 'Modèle MDX-Net UVR5 initialisé avec succès (mode CPU WASM).');
+    }
   }
 
   /**
@@ -281,10 +289,34 @@ export class MDXProcessor {
         }
       }
 
-      // 5. Inférence neuronale MDX-Net
+      // 5. Inférence neuronale MDX-Net (avec repli automatique vers WASM si WebGPU produit des NaN)
       const inputTensor = new this.ort.Tensor('float32', tensorData, [1, 4, this.dim_f, this.dim_t]);
-      const outputs = await this.session.run({ input: inputTensor });
-      const outData = outputs.output.data;
+      let outData;
+      try {
+        const outputs = await this.session.run({ input: inputTensor });
+        outData = outputs.output.data;
+        if (segIdx === 0) {
+          let hasValid = false, hasNaN = false;
+          for (let k = 0; k < outData.length; k += 64) {
+            const v = outData[k];
+            if (isNaN(v) || !isFinite(v)) { hasNaN = true; break; }
+            if (Math.abs(v) > 1e-6) hasValid = true;
+          }
+          if (hasNaN || (!hasValid && tensorData.some(x => Math.abs(x) > 1e-4))) {
+            throw new Error('Sortie WebGPU FP16 invalide (NaN/Zéro)');
+          }
+        }
+      } catch (runErr) {
+        if (this.modelBuffer && (!this.sessionOptions.executionProviders || this.sessionOptions.executionProviders[0] !== 'wasm')) {
+          this.onLog('infer', `Repli WebGPU -> WASM CPU (${runErr.message || runErr})`);
+          this.sessionOptions = { ...this.sessionOptions, executionProviders: ['wasm'] };
+          this.session = await this.ort.InferenceSession.create(this.modelBuffer, this.sessionOptions);
+          const outputs = await this.session.run({ input: inputTensor });
+          outData = outputs.output.data;
+        } else {
+          throw runErr;
+        }
+      }
 
       // 6. iSTFT pour reconstituer l'instrumentale
       recPaddedL.fill(0);
@@ -328,9 +360,11 @@ export class MDXProcessor {
         recPaddedR[i] /= w;
       }
 
-      // 7. Accumulation avec fondu enchaîné Hann
+      // 7. Accumulation avec fondu enchaîné Hann (poids unitaire aux extrémités du morceau)
       for (let i = 0; i < actualChunkLen; i++) {
-        const w = this.hannChunkWindow[i] || 1;
+        let w = this.hannChunkWindow[i];
+        if (segIdx === 0 && i < stepSamples) w = 1.0;
+        else if (segIdx === totalSegments - 1 && i >= stepSamples) w = 1.0;
         accumInstL[start + i] += recPaddedL[this.pad_side + i] * w;
         accumInstR[start + i] += recPaddedR[this.pad_side + i] * w;
         accumWeight[start + i] += w;

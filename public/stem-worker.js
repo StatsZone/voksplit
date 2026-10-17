@@ -4,10 +4,15 @@
 
 const ORT_VERSION = '1.20.1';
 const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
-const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.30';
+const DEMUCS_LOCAL_PATH = '/vendor/demucs-web/index.js?v=14.68.31';
 
-// Modèle Principal : MDX-Net UVR5 Ultra-Studio (~31.85 Mo FP16, Qualité Référence Mondiale)
-const MDX_MODEL_URL = '/models/uvr-mdx-net-inst-hq3-fp16.onnx';
+// Modèle Principal : MDX-Net UVR5 Ultra-Studio (~31.85 Mo FP16, découpé en 2x 15.9 Mo pour Cloudflare Pages < 25 Mo)
+const MDX_MODEL_CACHE_KEY = '/models/uvr-mdx-net-inst-hq3-fp16.onnx';
+const MDX_MODEL_PARTS = [
+    '/models/uvr-mdx-net-inst-hq3-fp16.part1.bin',
+    '/models/uvr-mdx-net-inst-hq3-fp16.part2.bin'
+];
+const MDX_MODEL_TOTAL_BYTES = 33398584;
 const MDX_MODEL_SHA256 = '62d30044a9e0980efe2daeba0e0f2080fcb23bf8a46b98c0ba5183fe9bf80a9e';
 
 // Modèle Secondaire Léger : VoksplitNet Propriétaire (Local, ~6.5 Mo FP16)
@@ -18,7 +23,7 @@ let VOKSPLIT_MODEL_SHA256 = '98dc7fa58831ec0aa68012636da72f6af4ee5ac41e60fd19c34
 const FALLBACK_MODEL_URL = 'https://huggingface.co/timcsy/demucs-web-onnx/resolve/main/htdemucs_embedded.onnx';
 const FALLBACK_MODEL_SHA256 = 'e5e425c17683f163a472462eb5f5a4ffcd11c31858d57fbd0833b012d8b88077';
 
-const AI_MODEL_CACHE = 'voksplit-ai-model-v4';
+const AI_MODEL_CACHE = 'voksplit-ai-model-v5';
 const SAMPLE_RATE = 44100;
 
 let processorPromise = null;
@@ -49,45 +54,73 @@ async function verifyAndGetBuffer(buffer, expectedHash) {
 
 let processorCache = new Map();
 
+async function fetchStreamIntoChunks(url, chunks, onBytesLoaded) {
+    const response = await fetch(url);
+    if (!response.ok || (response.headers.get('content-type') || '').includes('text/html')) {
+        throw new Error(`Téléchargement impossible pour ${url} (HTTP ${response.status})`);
+    }
+    const reader = response.body.getReader();
+    let partLoaded = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        partLoaded += value.length;
+        onBytesLoaded(value.length);
+    }
+    return partLoaded;
+}
+
 async function getModelBuffer(id, engine = 'mdx') {
     let cache = null;
     try { cache = await caches.open(AI_MODEL_CACHE); } catch (e) {}
 
-    let targetUrl = MDX_MODEL_URL;
+    let targetCacheKey = MDX_MODEL_CACHE_KEY;
+    let targetUrls = MDX_MODEL_PARTS;
     let targetHash = MDX_MODEL_SHA256;
+    let expectedTotal = MDX_MODEL_TOTAL_BYTES;
     let modelName = "MDX-Net UVR5 (Qualité Studio 31 Mo)";
     let modelType = 'mdx';
 
     if (engine === 'voksplit') {
-        targetUrl = VOKSPLIT_MODEL_URL;
+        targetCacheKey = VOKSPLIT_MODEL_URL;
+        targetUrls = [VOKSPLIT_MODEL_URL];
         targetHash = VOKSPLIT_MODEL_SHA256;
+        expectedTotal = 6856957;
         modelName = "VoksplitNet (Propriétaire Léger 6.5 Mo)";
         modelType = 'voksplit';
     } else if (engine === 'demucs') {
-        targetUrl = FALLBACK_MODEL_URL;
+        targetCacheKey = FALLBACK_MODEL_URL;
+        targetUrls = [FALLBACK_MODEL_URL];
         targetHash = FALLBACK_MODEL_SHA256;
+        expectedTotal = 180000000;
         modelName = "HTDemucs (Secours Distant 180 Mo)";
         modelType = 'demucs';
     } else {
         // MDX par défaut : vérifier si disponible, sinon basculer proprement sur VoksplitNet
         try {
-            const testRes = await fetch(MDX_MODEL_URL, { method: 'HEAD' });
-            if (!testRes.ok || testRes.headers.get('content-type') === 'text/html') {
-                targetUrl = VOKSPLIT_MODEL_URL;
+            const testRes = await fetch(MDX_MODEL_PARTS[0], { method: 'HEAD' });
+            const ct = (testRes.headers.get('content-type') || '').toLowerCase();
+            if (!testRes.ok || ct.includes('text/html')) {
+                targetCacheKey = VOKSPLIT_MODEL_URL;
+                targetUrls = [VOKSPLIT_MODEL_URL];
                 targetHash = VOKSPLIT_MODEL_SHA256;
+                expectedTotal = 6856957;
                 modelName = "VoksplitNet (Secours Local 6.5 Mo)";
                 modelType = 'voksplit';
             }
         } catch (e) {
-            targetUrl = VOKSPLIT_MODEL_URL;
+            targetCacheKey = VOKSPLIT_MODEL_URL;
+            targetUrls = [VOKSPLIT_MODEL_URL];
             targetHash = VOKSPLIT_MODEL_SHA256;
+            expectedTotal = 6856957;
             modelName = "VoksplitNet (Secours Local 6.5 Mo)";
             modelType = 'voksplit';
         }
     }
 
     if (cache) {
-        const cached = await cache.match(targetUrl);
+        const cached = await cache.match(targetCacheKey);
         if (cached) {
             status(id, `Modèle ${modelName} vérifié depuis le cache local`, 0.25);
             const buf = await cached.arrayBuffer();
@@ -96,29 +129,25 @@ async function getModelBuffer(id, engine = 'mdx') {
                 return { buffer: verified, modelType };
             } catch (err) {
                 console.warn("[Voksplit Worker] Cache corrompu, nouveau téléchargement...");
-                await cache.delete(targetUrl);
+                await cache.delete(targetCacheKey);
             }
         }
     }
 
-    const response = await fetch(targetUrl);
-    if (!response.ok) throw new Error(`Téléchargement du modèle IA impossible (HTTP ${response.status})`);
-    const total = parseInt(response.headers.get('Content-Length') || '0', 10) || (modelType === 'mdx' ? 33396736 : 6856957);
-    const reader = response.body.getReader();
     const chunks = [];
     let loaded = 0;
     let lastMb = -1;
+    const total = expectedTotal;
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        loaded += value.length;
-        const mb = Math.floor(loaded / 1048576);
-        if (mb !== lastMb) {
-            lastMb = mb;
-            status(id, `Chargement ${modelName} : ${mb} / ${Math.round(total / 1048576)} Mo`, (loaded / total) * 0.25);
-        }
+    for (const partUrl of targetUrls) {
+        await fetchStreamIntoChunks(partUrl, chunks, (delta) => {
+            loaded += delta;
+            const mb = Math.floor(loaded / 1048576);
+            if (mb !== lastMb) {
+                lastMb = mb;
+                status(id, `Chargement ${modelName} : ${mb} / ${Math.round(total / 1048576)} Mo`, Math.min(0.25, (loaded / total) * 0.25));
+            }
+        });
     }
 
     const bytes = new Uint8Array(loaded);
@@ -130,7 +159,7 @@ async function getModelBuffer(id, engine = 'mdx') {
 
     if (cache) {
         try {
-            await cache.put(targetUrl, new Response(bytes, { headers: { 'Content-Type': 'application/octet-stream' } }));
+            await cache.put(targetCacheKey, new Response(bytes, { headers: { 'Content-Type': 'application/octet-stream' } }));
         } catch (e) {
             console.warn('[Voksplit Worker] Mise en cache impossible :', e);
         }
